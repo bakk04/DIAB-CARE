@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { GlassCard, PrimaryBtn, InputField, SelectField, fadeUp, stagger, PageWrapper } from "../components/ui";
 import type { Page } from "../components/ui";
+import { api } from "../app/api";
 
 const steps = ["Personal", "Medical", "Security"];
 
@@ -25,12 +26,57 @@ export default function RegisterPage({ navigate }: { navigate: (p: Page) => void
     gender: "Female", age: "", weight: "", height: "",
     password: "", confirm: "", agree: false,
   });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const update = (k: string, v: string | boolean) => setForm(f => ({ ...f, [k]: v }));
 
-  const handleSubmit = () => {
-    if (step < 2) { setStep(s => s + 1); return; }
-    navigate("profile");
+  const handleSubmit = async () => {
+    if (step < 2) {
+      if (step === 0) {
+        if (!form.firstName || !form.lastName || !form.email) {
+          setError("First name, last name and email are required.");
+          return;
+        }
+        setError("");
+      }
+      if (step === 1) {
+        if (!form.age) {
+          setError("Age is required.");
+          return;
+        }
+        setError("");
+      }
+      setStep(s => s + 1);
+      return;
+    }
+
+    if (!form.password || form.password !== form.confirm) {
+      setError("Passwords must match and be filled.");
+      return;
+    }
+    
+    setError("");
+    setLoading(true);
+    try {
+      await api.register({
+        firstname: form.firstName,
+        lastname: form.lastName,
+        email: form.email,
+        password: form.password,
+        gender: form.gender,
+        age: parseInt(form.age),
+      });
+
+      const loginRes = await api.login(form.email, form.password);
+      await api.getProfile(loginRes.user_id);
+      
+      setLoading(false);
+      navigate("profile");
+    } catch (err: any) {
+      setLoading(false);
+      setError(err.message || "Registration failed. Email might already be in use.");
+    }
   };
 
   return (
@@ -203,24 +249,45 @@ export default function RegisterPage({ navigate }: { navigate: (p: Page) => void
               </motion.div>
             )}
 
+            {error && (
+              <div className="p-3 bg-red-50 border border-red-200 text-red-600 text-xs font-semibold rounded-xl text-center mb-4">
+                {error}
+              </div>
+            )}
+
             {/* Navigation */}
             <motion.div variants={fadeUp} className="flex gap-3 mt-7">
               {step > 0 && (
                 <button
                   onClick={() => setStep(s => s - 1)}
-                  className="flex-1 py-3.5 border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:border-blue-300 hover:text-blue-700 transition-all"
+                  disabled={loading}
+                  className="flex-1 py-3.5 border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:border-blue-300 hover:text-blue-700 transition-all disabled:opacity-55"
                 >
                   Back
                 </button>
               )}
               <motion.button
                 onClick={handleSubmit}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                className="flex-1 flex items-center justify-center gap-2.5 py-3.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-bold rounded-xl shadow-[0_4px_20px_rgba(37,99,235,0.35)] text-sm"
+                disabled={loading}
+                whileHover={{ scale: loading ? 1 : 1.02 }}
+                whileTap={{ scale: loading ? 1 : 0.98 }}
+                className="flex-1 flex items-center justify-center gap-2.5 py-3.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-bold rounded-xl shadow-[0_4px_20px_rgba(37,99,235,0.35)] text-sm disabled:opacity-50"
               >
-                {step < 2 ? "Continue" : "Create Account"}
-                {step < 2 ? <ChevronRight className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
+                {loading ? (
+                  <>
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }}
+                      className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full"
+                    />
+                    Creating...
+                  </>
+                ) : (
+                  <>
+                    {step < 2 ? "Continue" : "Create Account"}
+                    {step < 2 ? <ChevronRight className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
+                  </>
+                )}
               </motion.button>
             </motion.div>
           </GlassCard>

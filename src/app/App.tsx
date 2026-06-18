@@ -34,8 +34,8 @@ export default function App() {
       {page === "login" && <LoginPage navigate={setPage} />}
       {page === "register" && <RegisterPage navigate={setPage} />}
       {page === "profile" && <ProfilePage navigate={setPage} />}
-      {page === "test" && <TestPage />}
-      {page === "admin" && <AdminPage />}
+      {page === "test" && <TestPage navigate={setPage} />}
+      {page === "admin" && <AdminPage navigate={setPage} />}
     </div>
   );
 }

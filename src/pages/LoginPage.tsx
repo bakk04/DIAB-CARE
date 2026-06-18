@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { fadeUp, stagger } from "../components/ui";
 import type { Page } from "../components/ui";
+import { api } from "../app/api";
 
 const features = [
   { icon: Brain, text: "AI-Powered Risk Assessment" },
@@ -19,10 +20,28 @@ export default function LoginPage({ navigate }: { navigate: (p: Page) => void })
   const [email, setEmail] = useState("");
   const [pwd, setPwd] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
+    if (!email || !pwd) {
+      setError("Please fill in all fields.");
+      return;
+    }
+    setError("");
     setLoading(true);
-    setTimeout(() => { setLoading(false); navigate("profile"); }, 1200);
+    try {
+      const res = await api.login(email, pwd);
+      await api.getProfile(res.user_id);
+      setLoading(false);
+      if (email === "admin@diabcare.ai") {
+        navigate("admin");
+      } else {
+        navigate("profile");
+      }
+    } catch (err: any) {
+      setLoading(false);
+      setError(err.message || "Invalid email or password.");
+    }
   };
 
   return (
@@ -182,6 +201,12 @@ export default function LoginPage({ navigate }: { navigate: (p: Page) => void })
               <input type="checkbox" className="w-4 h-4 rounded accent-blue-600" />
               <span className="text-sm text-slate-600">Remember me for 30 days</span>
             </label>
+
+            {error && (
+              <div className="p-3.5 bg-red-50 border border-red-200 text-red-600 text-xs font-semibold rounded-xl text-center">
+                {error}
+              </div>
+            )}
 
             {/* Submit */}
             <motion.button

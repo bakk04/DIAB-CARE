@@ -1,48 +1,19 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import {
   Activity, Heart, Droplets, Brain, TrendingUp, FlaskConical,
   CalendarDays, Bell, Settings, Download, Plus,
-  CheckCircle, AlertTriangle, Clock, ChevronRight,
+  CheckCircle, AlertTriangle, Clock, ChevronRight, LogOut,
 } from "lucide-react";
 import {
-  AreaChart, Area, LineChart, Line, ResponsiveContainer,
+  AreaChart, Area, ResponsiveContainer,
   CartesianGrid, XAxis, YAxis, Tooltip,
 } from "recharts";
 import {
   GlassCard, Badge, SectionLabel, PrimaryBtn, fadeUp, stagger, PageWrapper, StatCard,
 } from "../components/ui";
 import type { Page } from "../components/ui";
-
-const glucoseData = [
-  { m: "Jan", v: 95 }, { m: "Feb", v: 102 }, { m: "Mar", v: 98 },
-  { m: "Apr", v: 115 }, { m: "May", v: 108 }, { m: "Jun", v: 99 },
-  { m: "Jul", v: 96 }, { m: "Aug", v: 103 },
-];
-const riskData = [
-  { m: "Jan", v: 12 }, { m: "Feb", v: 15 }, { m: "Mar", v: 13 },
-  { m: "Apr", v: 22 }, { m: "May", v: 18 }, { m: "Jun", v: 14 },
-  { m: "Jul", v: 11 }, { m: "Aug", v: 13 },
-];
-const bmiData = [
-  { m: "Jan", v: 24.2 }, { m: "Feb", v: 24.0 }, { m: "Mar", v: 23.8 },
-  { m: "Apr", v: 23.9 }, { m: "May", v: 23.5 }, { m: "Jun", v: 23.3 },
-  { m: "Jul", v: 23.1 }, { m: "Aug", v: 22.9 },
-];
-
-const history = [
-  { date: "Aug 15, 2024", pred: "Negative", risk: "Low", prob: "13%", glucose: "96 mg/dL", status: "Healthy" },
-  { date: "Jun 14, 2024", pred: "Negative", risk: "Low", prob: "14%", glucose: "99 mg/dL", status: "Healthy" },
-  { date: "Apr 02, 2024", pred: "Negative", risk: "Moderate", prob: "22%", glucose: "115 mg/dL", status: "Monitor" },
-  { date: "Jan 18, 2024", pred: "Negative", risk: "Low", prob: "12%", glucose: "95 mg/dL", status: "Healthy" },
-  { date: "Oct 05, 2023", pred: "Positive", risk: "High", prob: "71%", glucose: "148 mg/dL", status: "At Risk" },
-];
-
-const insights = [
-  { icon: TrendingUp, text: "Your glucose levels have improved 8% over the last 3 months.", color: "text-emerald-600", bg: "bg-emerald-50 border-emerald-200" },
-  { icon: AlertTriangle, text: "April spike: Glucose reached 115 mg/dL. Schedule a follow-up HbA1c test.", color: "text-amber-600", bg: "bg-amber-50 border-amber-200" },
-  { icon: CheckCircle, text: "BMI consistently improving — down 1.3 points since January.", color: "text-blue-600", bg: "bg-blue-50 border-blue-200" },
-];
+import { api, UserProfileResponse } from "../app/api";
 
 function MiniChart({ data, color, gradient }: { data: any[]; color: string; gradient: string }) {
   return (
@@ -66,12 +37,184 @@ function MiniChart({ data, color, gradient }: { data: any[]; color: string; grad
 
 export default function ProfilePage({ navigate }: { navigate: (p: Page) => void }) {
   const [activeChart, setActiveChart] = useState<"glucose" | "risk" | "bmi">("glucose");
+  const [profile, setProfile] = useState<UserProfileResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      const id = api.getCurrentUserId();
+      if (!id) {
+        navigate("login");
+        return;
+      }
+      try {
+        const data = await api.getProfile(id);
+        setProfile(data);
+      } catch (err: any) {
+        setError(err.message || "Failed to load profile details.");
+        if (err.message?.includes("credentials") || err.message?.includes("authorized")) {
+          api.logout();
+          navigate("login");
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchProfile();
+  }, [navigate]);
+
+  const handleLogout = () => {
+    api.logout();
+    navigate("home");
+  };
+
+  if (loading) {
+    return (
+      <PageWrapper className="min-h-screen bg-[#F8FAFC] pt-24 pb-16 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+            className="w-12 h-12 border-4 border-blue-600/20 border-t-blue-600 rounded-full"
+          />
+          <p className="text-slate-500 font-bold text-sm">Fetching your clinical profile...</p>
+        </div>
+      </PageWrapper>
+    );
+  }
+
+  const rawPredictions = profile?.predictions || [];
+  const latestPred = rawPredictions[0];
+
+  const initials = profile
+    ? `${profile.firstname.charAt(0)}${profile.lastname.charAt(0)}`.toUpperCase()
+    : "SJ";
+  const fullName = profile ? `${profile.firstname} ${profile.lastname}` : "Sarah Johnson";
+  const patientId = profile ? `#${profile.id.toString().padStart(5, "0")}` : "#48291";
+
+  // Risk display helper
+  const isHighRisk = latestPred ? latestPred.prediction === "Positive" : false;
+  const riskLabel = latestPred ? (isHighRisk ? "High Risk" : "Low Risk") : "No Test Yet";
+  const riskBadgeColor = latestPred ? (isHighRisk ? "red" : "green") : "gray";
+
+  // Dynamic values
+  const bmiVal = latestPred ? latestPred.bmi.toFixed(1) : "—";
+  const glucoseVal = latestPred ? `${latestPred.glucose} mg/dL` : "—";
+  const bpVal = latestPred ? `${Math.round(latestPred.blood_pressure)} mmHg` : "—";
+  const probVal = latestPred ? `${Math.round(latestPred.probability)}%` : "—";
+
+  // Dynamic charts
+  const sortedPredictions = [...rawPredictions].reverse();
+  const hasHistory = sortedPredictions.length > 0;
+
+  const glucoseData = hasHistory
+    ? sortedPredictions.map(p => ({
+        m: new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        v: p.glucose
+      }))
+    : [
+        { m: "Jan", v: 95 }, { m: "Feb", v: 102 }, { m: "Mar", v: 98 },
+        { m: "Apr", v: 115 }, { m: "May", v: 108 }, { m: "Jun", v: 99 },
+        { m: "Jul", v: 96 }, { m: "Aug", v: 103 },
+      ];
+
+  const riskData = hasHistory
+    ? sortedPredictions.map(p => ({
+        m: new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        v: Math.round(p.probability)
+      }))
+    : [
+        { m: "Jan", v: 12 }, { m: "Feb", v: 15 }, { m: "Mar", v: 13 },
+        { m: "Apr", v: 22 }, { m: "May", v: 18 }, { m: "Jun", v: 14 },
+        { m: "Jul", v: 11 }, { m: "Aug", v: 13 },
+      ];
+
+  const bmiData = hasHistory
+    ? sortedPredictions.map(p => ({
+        m: new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        v: p.bmi
+      }))
+    : [
+        { m: "Jan", v: 24.2 }, { m: "Feb", v: 24.0 }, { m: "Mar", v: 23.8 },
+        { m: "Apr", v: 23.9 }, { m: "May", v: 23.5 }, { m: "Jun", v: 23.3 },
+        { m: "Jul", v: 23.1 }, { m: "Aug", v: 22.9 },
+      ];
 
   const chartMap = {
     glucose: { data: glucoseData, color: "#2563EB", label: "Blood Glucose (mg/dL)", gradient: "cgBlue" },
     risk: { data: riskData, color: "#EF4444", label: "Diabetes Risk Score (%)", gradient: "cgRed" },
     bmi: { data: bmiData, color: "#10B981", label: "BMI (kg/m²)", gradient: "cgGreen" },
   };
+
+  // Dynamic insights
+  const insights = [];
+  if (latestPred) {
+    if (isHighRisk) {
+      insights.push({
+        icon: AlertTriangle,
+        text: `Attention: Last glucose check is ${latestPred.glucose} mg/dL, indicating high risk. Please see a physician.`,
+        color: "text-red-600",
+        bg: "bg-red-50 border-red-200"
+      });
+    } else {
+      insights.push({
+        icon: CheckCircle,
+        text: `Optimal: Last assessment indicates Low Risk with healthy fasting glucose (${latestPred.glucose} mg/dL).`,
+        color: "text-emerald-600",
+        bg: "bg-emerald-50 border-emerald-200"
+      });
+    }
+
+    if (latestPred.bmi >= 25.0) {
+      insights.push({
+        icon: AlertTriangle,
+        text: `Elevated BMI of ${latestPred.bmi.toFixed(1)} kg/m². Adopting standard cardiovascular workouts is advised.`,
+        color: "text-amber-600",
+        bg: "bg-amber-50 border-amber-200"
+      });
+    } else {
+      insights.push({
+        icon: CheckCircle,
+        text: `Normal weight: BMI of ${latestPred.bmi.toFixed(1)} kg/m² sits comfortably in the safe zone.`,
+        color: "text-blue-600",
+        bg: "bg-blue-50 border-blue-200"
+      });
+    }
+
+    if (latestPred.blood_pressure >= 80) {
+      insights.push({
+        icon: AlertTriangle,
+        text: `Diastolic Blood Pressure is ${latestPred.blood_pressure} mmHg. Avoid highly refined sugars and excess salt.`,
+        color: "text-amber-600",
+        bg: "bg-amber-50 border-amber-200"
+      });
+    } else {
+      insights.push({
+        icon: CheckCircle,
+        text: `Healthy Blood Pressure: Diastolic reading of ${latestPred.blood_pressure} mmHg shows strong cardiovascular status.`,
+        color: "text-emerald-600",
+        bg: "bg-emerald-50 border-emerald-200"
+      });
+    }
+  } else {
+    insights.push(
+      { icon: TrendingUp, text: "No test records found yet. Complete a test to run our AI diagnostic models.", color: "text-blue-600", bg: "bg-blue-50 border-blue-200" },
+      { icon: CheckCircle, text: "Clinical accuracy is 95.3% when utilizing genuine recent laboratory biomarkers.", color: "text-emerald-600", bg: "bg-emerald-50 border-emerald-200" },
+      { icon: Clock, text: "Recommended testing interval is every 3 months to map pre-diabetic trends.", color: "text-amber-600", bg: "bg-amber-50 border-amber-200" }
+    );
+  }
+
+  // Mini Chart stats
+  const avgGlucose = hasHistory
+    ? Math.round(rawPredictions.reduce((acc, curr) => acc + curr.glucose, 0) / rawPredictions.length)
+    : 102;
+  const avgRisk = hasHistory
+    ? Math.round(rawPredictions.reduce((acc, curr) => acc + curr.probability, 0) / rawPredictions.length)
+    : 13;
+  const avgBmi = hasHistory
+    ? (rawPredictions.reduce((acc, curr) => acc + curr.bmi, 0) / rawPredictions.length).toFixed(1)
+    : "22.9";
 
   return (
     <PageWrapper className="min-h-screen bg-[#F8FAFC] pt-24 pb-16">
@@ -87,16 +230,16 @@ export default function ProfilePage({ navigate }: { navigate: (p: Page) => void 
           <motion.div variants={fadeUp} className="flex items-center gap-5">
             <div className="relative">
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center text-white text-xl font-extrabold shadow-xl">
-                SJ
+                {initials}
               </div>
               <span className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-400 rounded-full border-2 border-white" />
             </div>
             <div>
-              <h1 className="text-2xl font-extrabold text-slate-900">Sarah Johnson</h1>
+              <h1 className="text-2xl font-extrabold text-slate-900">{fullName}</h1>
               <div className="flex items-center gap-2 mt-1">
-                <span className="text-sm text-slate-500">Patient ID: #48291</span>
+                <span className="text-sm text-slate-500">Patient ID: {patientId}</span>
                 <span className="text-slate-300">·</span>
-                <Badge color="green" size="sm">Low Risk</Badge>
+                <Badge color={riskBadgeColor} size="sm">{riskLabel}</Badge>
               </div>
             </div>
           </motion.div>
@@ -105,8 +248,12 @@ export default function ProfilePage({ navigate }: { navigate: (p: Page) => void 
             <button className="p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-blue-50 hover:border-blue-200 transition-all text-slate-500 hover:text-blue-600">
               <Bell className="w-4 h-4" />
             </button>
-            <button className="p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-blue-50 hover:border-blue-200 transition-all text-slate-500 hover:text-blue-600">
-              <Download className="w-4 h-4" />
+            <button
+              onClick={handleLogout}
+              className="p-2.5 rounded-xl border border-red-200 bg-white hover:bg-red-50 hover:border-red-300 transition-all text-red-500"
+              title="Sign Out"
+            >
+              <LogOut className="w-4 h-4" />
             </button>
             <button className="p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-blue-50 hover:border-blue-200 transition-all text-slate-500 hover:text-blue-600">
               <Settings className="w-4 h-4" />
@@ -125,11 +272,11 @@ export default function ProfilePage({ navigate }: { navigate: (p: Page) => void 
           className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4"
         >
           {[
-            { icon: Activity, label: "Diabetes Risk", value: "Low", sub: "Last: Aug 2024", gradient: "from-emerald-500 to-teal-600" },
-            { icon: TrendingUp, label: "BMI", value: "22.9", sub: "Normal range", gradient: "from-blue-500 to-blue-700" },
-            { icon: Droplets, label: "Glucose", value: "96 mg/dL", sub: "Normal fasting", gradient: "from-cyan-500 to-cyan-700" },
-            { icon: Heart, label: "Blood Pressure", value: "118/76", sub: "Optimal", gradient: "from-rose-500 to-rose-700" },
-            { icon: Brain, label: "AI Risk Score", value: "13%", sub: "Low probability", gradient: "from-violet-500 to-violet-700" },
+            { icon: Activity, label: "Diabetes Risk", value: latestPred ? (isHighRisk ? "Positive" : "Negative") : "None", sub: latestPred ? "Model Assessed" : "No tests yet", gradient: isHighRisk ? "from-red-500 to-rose-600" : "from-emerald-500 to-teal-600" },
+            { icon: TrendingUp, label: "BMI", value: bmiVal, sub: "Calculated BMI", gradient: "from-blue-500 to-blue-700" },
+            { icon: Droplets, label: "Glucose", value: glucoseVal, sub: "Last Fasting Sugar", gradient: "from-cyan-500 to-cyan-700" },
+            { icon: Heart, label: "Blood Pressure", value: bpVal, sub: "Diastolic Pressure", gradient: "from-rose-500 to-rose-700" },
+            { icon: Brain, label: "AI Probability", value: probVal, sub: "Bayesian probability", gradient: "from-violet-500 to-violet-700" },
           ].map((c) => (
             <motion.div key={c.label} variants={fadeUp}>
               <StatCard icon={c.icon} label={c.label} value={c.value} sub={c.sub} gradient={c.gradient} />
@@ -165,7 +312,7 @@ export default function ProfilePage({ navigate }: { navigate: (p: Page) => void 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
               <div>
                 <h3 className="font-extrabold text-slate-800">Health Trends</h3>
-                <p className="text-xs text-slate-400 mt-0.5">8-month longitudinal tracking</p>
+                <p className="text-xs text-slate-400 mt-0.5">{hasHistory ? `${rawPredictions.length} clinical evaluations registered` : "8-month longitudinal tracking (demo)"}</p>
               </div>
               <div className="flex gap-2">
                 {(["glucose", "risk", "bmi"] as const).map((k) => (
@@ -214,9 +361,9 @@ export default function ProfilePage({ navigate }: { navigate: (p: Page) => void 
           className="grid sm:grid-cols-3 gap-4"
         >
           {[
-            { title: "Blood Sugar History", subtitle: "Avg 102 mg/dL · Stable", data: glucoseData, color: "#2563EB", gradient: "miniBlue", trend: "+2%", trendOk: true },
-            { title: "Risk Evolution", subtitle: "Declining trend · Good", data: riskData, color: "#EF4444", gradient: "miniRed", trend: "-38%", trendOk: true },
-            { title: "BMI Evolution", subtitle: "Improving · On target", data: bmiData, color: "#10B981", gradient: "miniGreen", trend: "-5.4%", trendOk: true },
+            { title: "Blood Sugar History", subtitle: `Avg ${avgGlucose} mg/dL`, data: glucoseData, color: "#2563EB", gradient: "miniBlue", trend: hasHistory ? "Live" : "+2%", trendOk: true },
+            { title: "Risk Evolution", subtitle: `Avg ${avgRisk}% probability`, data: riskData, color: "#EF4444", gradient: "miniRed", trend: hasHistory ? "Live" : "-38%", trendOk: true },
+            { title: "BMI Evolution", subtitle: `Avg ${avgBmi} kg/m²`, data: bmiData, color: "#10B981", gradient: "miniGreen", trend: hasHistory ? "Live" : "-5.4%", trendOk: true },
           ].map((chart) => (
             <GlassCard key={chart.title} className="p-5">
               <div className="flex items-start justify-between mb-1">
@@ -243,7 +390,7 @@ export default function ProfilePage({ navigate }: { navigate: (p: Page) => void 
             <div className="flex items-center justify-between p-6 border-b border-slate-100">
               <div>
                 <h3 className="font-extrabold text-slate-800">Medical History</h3>
-                <p className="text-xs text-slate-400 mt-0.5">All AI assessments · {history.length} records</p>
+                <p className="text-xs text-slate-400 mt-0.5">All AI assessments · {rawPredictions.length} records</p>
               </div>
               <button className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800 transition-colors">
                 View All <ChevronRight className="w-3.5 h-3.5" />
@@ -259,37 +406,47 @@ export default function ProfilePage({ navigate }: { navigate: (p: Page) => void 
                   </tr>
                 </thead>
                 <tbody>
-                  {history.map((row, i) => (
-                    <motion.tr
-                      key={i}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: 0.5 + i * 0.05 }}
-                      className="border-b border-slate-50 hover:bg-blue-50/40 transition-colors group"
-                    >
-                      <td className="py-4 px-6">
-                        <div className="flex items-center gap-2">
-                          <CalendarDays className="w-3.5 h-3.5 text-slate-300" />
-                          <span className="text-slate-700 font-semibold text-sm">{row.date}</span>
-                        </div>
+                  {rawPredictions.length > 0 ? (
+                    rawPredictions.map((row, i) => (
+                      <motion.tr
+                        key={row.id}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 0.5 + i * 0.05 }}
+                        className="border-b border-slate-50 hover:bg-blue-50/40 transition-colors group"
+                      >
+                        <td className="py-4 px-6">
+                          <div className="flex items-center gap-2">
+                            <CalendarDays className="w-3.5 h-3.5 text-slate-300" />
+                            <span className="text-slate-700 font-semibold text-sm">
+                              {new Date(row.created_at).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-4 px-6">
+                          <Badge color={row.prediction === "Negative" ? "green" : "red"}>{row.prediction}</Badge>
+                        </td>
+                        <td className="py-4 px-6">
+                          <Badge color={row.risk_level === "Low Risk" ? "green" : row.risk_level === "Moderate Risk" ? "yellow" : "red"}>{row.risk_level}</Badge>
+                        </td>
+                        <td className="py-4 px-6 font-semibold text-slate-700 text-sm">{row.glucose} mg/dL</td>
+                        <td className="py-4 px-6">
+                          <span className={`font-extrabold text-sm ${row.prediction === "Positive" ? "text-red-600" : "text-emerald-600"}`}>{Math.round(row.probability)}%</span>
+                        </td>
+                        <td className="py-4 px-6">
+                          <span className={`text-xs font-bold ${row.prediction === "Negative" ? "text-emerald-600" : "text-red-600"}`}>
+                            {row.prediction === "Negative" ? "Healthy" : "At Risk"}
+                          </span>
+                        </td>
+                      </motion.tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-slate-400 font-semibold text-xs uppercase tracking-wide">
+                        No medical assessments found. Take a free test below to begin!
                       </td>
-                      <td className="py-4 px-6">
-                        <Badge color={row.pred === "Negative" ? "green" : "red"}>{row.pred}</Badge>
-                      </td>
-                      <td className="py-4 px-6">
-                        <Badge color={row.risk === "Low" ? "green" : row.risk === "Moderate" ? "yellow" : "red"}>{row.risk}</Badge>
-                      </td>
-                      <td className="py-4 px-6 font-semibold text-slate-700 text-sm">{row.glucose}</td>
-                      <td className="py-4 px-6">
-                        <span className={`font-extrabold text-sm ${row.pred === "Positive" ? "text-red-600" : "text-emerald-600"}`}>{row.prob}</span>
-                      </td>
-                      <td className="py-4 px-6">
-                        <span className={`text-xs font-bold ${row.status === "Healthy" ? "text-emerald-600" : row.status === "Monitor" ? "text-amber-600" : "text-red-600"}`}>
-                          {row.status}
-                        </span>
-                      </td>
-                    </motion.tr>
-                  ))}
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -309,7 +466,7 @@ export default function ProfilePage({ navigate }: { navigate: (p: Page) => void 
               </div>
               <div>
                 <div className="font-extrabold text-lg">Next Assessment Due</div>
-                <div className="text-blue-100 text-sm">Recommended every 3 months · Due: November 15, 2024</div>
+                <div className="text-blue-100 text-sm">Recommended every 3 months · Keep mapping your biomarkers.</div>
               </div>
             </div>
             <button

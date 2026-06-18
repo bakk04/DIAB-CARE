@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Brain, FlaskConical, Activity, Heart, Droplets, User,
@@ -13,6 +13,8 @@ import {
 import {
   GlassCard, PrimaryBtn, SecondaryBtn, Badge, SectionLabel, InputField, SelectField, fadeUp, stagger, PageWrapper,
 } from "../components/ui";
+import type { Page } from "../components/ui";
+import { api, PredictionResponse } from "../app/api";
 
 /* ─── Step indicator ─── */
 function StepBar({ step }: { step: number }) {
@@ -21,7 +23,7 @@ function StepBar({ step }: { step: number }) {
     <div className="flex items-center justify-center gap-0 mb-10">
       {steps.map((s, i) => (
         <div key={s} className="flex items-center">
-          <div className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-bold transition-all duration-400 ${i === step ? "bg-blue-600 text-white shadow-md shadow-blue-200" : i < step ? "bg-emerald-500 text-white" : "bg-slate-100 text-slate-500"}`}>
+          <div className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-bold transition-all duration-400 ${i === step ? "bg-blue-600 text-white shadow-md shadow-blue-200" : i < step ? "bg-emerald-50 text-white" : "bg-slate-100 text-slate-500"}`}>
             {i < step ? <CheckCircle className="w-3.5 h-3.5" /> : <span className="w-4 h-4 flex items-center justify-center">{i + 1}</span>}
             <span className="hidden sm:inline">{s}</span>
           </div>
@@ -35,36 +37,125 @@ function StepBar({ step }: { step: number }) {
 }
 
 /* ─── Result View ─── */
-function ResultView({ risk, onReset }: { risk: number; onReset: () => void }) {
-  const positive = risk >= 50;
-  const level = risk >= 70 ? "High" : risk >= 40 ? "Moderate" : "Low";
-  const levelColor = risk >= 70 ? "red" : risk >= 40 ? "yellow" : "green";
+interface ResultViewProps {
+  predictionResult: PredictionResponse;
+  form: any;
+  onReset: () => void;
+}
+
+function ResultView({ predictionResult, form, onReset }: ResultViewProps) {
+  const risk = Math.round(predictionResult.probability);
+  const positive = predictionResult.prediction === "Positive";
+  const level = predictionResult.risk_level.replace(" Risk", "");
+  const levelColor = positive ? "red" : risk >= 40 ? "yellow" : "green";
 
   const gaugeData = [
-    { value: risk, fill: risk >= 70 ? "#EF4444" : risk >= 40 ? "#F59E0B" : "#10B981" },
+    { value: risk, fill: positive ? "#EF4444" : risk >= 40 ? "#F59E0B" : "#10B981" },
     { value: 100 - risk, fill: "#F1F5F9" },
   ];
 
+  // Map user inputs to radar visualizer
   const radarData = [
-    { factor: "Glucose", value: 82 },
-    { factor: "BMI", value: 65 },
-    { factor: "Blood Press.", value: 48 },
-    { factor: "Insulin", value: 71 },
-    { factor: "Pedigree", value: 58 },
-    { factor: "Age", value: 55 },
+    { factor: "Glucose", value: Math.min(100, Math.round(((parseFloat(form.glucose) || 120) / 200) * 100)) },
+    { factor: "BMI", value: Math.min(100, Math.round(((parseFloat(form.bmi) || 25) / 50) * 100)) },
+    { factor: "Blood Press.", value: Math.min(100, Math.round(((parseFloat(form.bloodPressure) || 80) / 125) * 100)) },
+    { factor: "Insulin", value: Math.min(100, Math.round(((parseFloat(form.insulin) || 80) / 300) * 100)) },
+    { factor: "Pedigree", value: Math.min(100, Math.round(((parseFloat(form.pedigree) || 0.5) / 2.0) * 100)) },
+    { factor: "Age", value: Math.min(100, Math.round(((parseFloat(form.age) || 30) / 90) * 100)) },
   ];
 
-  const recs = [
-    { icon: Dumbbell, title: "Daily Exercise", desc: "30 min moderate aerobic activity 5 days/week. Brisk walking, cycling, or swimming.", color: "from-blue-500 to-blue-700" },
-    { icon: Apple, title: "Dietary Changes", desc: "Low glycemic index foods, reduce refined carbs, increase fiber intake to 25–35g daily.", color: "from-emerald-500 to-emerald-700" },
-    { icon: Stethoscope, title: "Medical Consultation", desc: "Schedule HbA1c test and endocrinology referral within 30 days.", color: "from-red-500 to-rose-600" },
-    { icon: CalendarDays, title: "Regular Monitoring", desc: "Self-monitor blood glucose twice daily. Repeat full assessment in 3 months.", color: "from-violet-500 to-violet-700" },
-  ];
+  // Map textual recommendations to visual grid items with icons
+  const recs = predictionResult.recommendations.map((desc) => {
+    let icon = Info;
+    let title = "General Monitoring";
+    let color = "from-violet-500 to-violet-700";
 
-  const factors = [
-    { label: "Elevated Fasting Glucose", value: 145, unit: "mg/dL", threshold: "< 100", severity: "high", detail: "45 mg/dL above normal range" },
-    { label: "BMI — Overweight", value: 29.2, unit: "kg/m²", threshold: "18.5–24.9", severity: "moderate", detail: "Increased metabolic risk" },
-    { label: "Diabetes Pedigree", value: 0.72, unit: "score", threshold: "< 0.5", severity: "moderate", detail: "Moderate hereditary component" },
+    const low = desc.toLowerCase();
+    if (low.includes("diet") || low.includes("eat") || low.includes("food") || low.includes("nutrition")) {
+      icon = Apple;
+      title = "Dietary Adjustments";
+      color = "from-emerald-500 to-emerald-700";
+    } else if (low.includes("exercise") || low.includes("workout") || low.includes("sport") || low.includes("activity")) {
+      icon = Dumbbell;
+      title = "Physical Training";
+      color = "from-blue-500 to-blue-700";
+    } else if (low.includes("doctor") || low.includes("consult") || low.includes("clinic") || low.includes("specialist")) {
+      icon = Stethoscope;
+      title = "Clinical Review";
+      color = "from-red-500 to-rose-600";
+    }
+
+    return { icon, title, desc, color };
+  });
+
+  // Calculate dynamic explanation highlights
+  const factors = [];
+  const gluVal = parseFloat(form.glucose) || 120;
+  if (gluVal >= 100) {
+    factors.push({
+      label: "Elevated Fasting Glucose",
+      value: gluVal,
+      unit: "mg/dL",
+      threshold: "< 100",
+      severity: gluVal >= 126 ? "high" : "moderate",
+      detail: `${Math.round(gluVal - 99)} mg/dL above standard limit`
+    });
+  }
+  const bmiVal = parseFloat(form.bmi) || 25;
+  if (bmiVal >= 25.0) {
+    factors.push({
+      label: `BMI — ${bmiVal >= 30 ? "Obese" : "Overweight"}`,
+      value: bmiVal,
+      unit: "kg/m²",
+      threshold: "18.5–24.9",
+      severity: bmiVal >= 30 ? "high" : "moderate",
+      detail: "Elevated body mass factor"
+    });
+  }
+  const pedVal = parseFloat(form.pedigree) || 0.45;
+  if (pedVal >= 0.5) {
+    factors.push({
+      label: "Diabetes Pedigree Factor",
+      value: pedVal,
+      unit: "score",
+      threshold: "< 0.5",
+      severity: pedVal >= 0.8 ? "high" : "moderate",
+      detail: "Hereditary risk profile"
+    });
+  }
+
+  // Fallback if user is fully within normal limits
+  if (factors.length === 0) {
+    factors.push({
+      label: "Healthy Fasting Glucose",
+      value: gluVal,
+      unit: "mg/dL",
+      threshold: "< 100",
+      severity: "low",
+      detail: "Ideal sugar levels"
+    });
+    factors.push({
+      label: "Optimal Body Weight",
+      value: bmiVal,
+      unit: "kg/m²",
+      threshold: "18.5–24.9",
+      severity: "low",
+      detail: "Perfect BMI"
+    });
+  }
+
+  // Normalization limits for contribution bars
+  const getContributionPct = (val: number, max: number) => {
+    return Math.min(100, Math.max(10, Math.round((val / max) * 100)));
+  };
+
+  const contributions = [
+    { label: "Glucose Level", pct: getContributionPct(parseFloat(form.glucose) || 120, 200), color: "#EF4444" },
+    { label: "Diabetes Pedigree", pct: getContributionPct(parseFloat(form.pedigree) || 0.5, 2.4), color: "#F59E0B" },
+    { label: "BMI Index", pct: getContributionPct(parseFloat(form.bmi) || 25, 50), color: "#F97316" },
+    { label: "Insulin Resistance", pct: getContributionPct(parseFloat(form.insulin) || 80, 800), color: "#8B5CF6" },
+    { label: "Blood Pressure", pct: getContributionPct(parseFloat(form.bloodPressure) || 80, 120), color: "#2563EB" },
+    { label: "Age Factor", pct: getContributionPct(parseFloat(form.age) || 30, 100), color: "#06B6D4" },
   ];
 
   return (
@@ -81,7 +172,7 @@ function ResultView({ risk, onReset }: { risk: number; onReset: () => void }) {
           {/* Gauge */}
           <div className="flex flex-col items-center">
             <div className="relative w-44 h-44">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={100}>
                 <PieChart>
                   <Pie
                     data={gaugeData}
@@ -103,7 +194,7 @@ function ResultView({ risk, onReset }: { risk: number; onReset: () => void }) {
                   initial={{ opacity: 0, scale: 0.5 }}
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ delay: 0.3, type: "spring" }}
-                  className={`text-4xl font-extrabold ${risk >= 70 ? "text-red-600" : risk >= 40 ? "text-amber-500" : "text-emerald-600"}`}
+                  className={`text-4xl font-extrabold ${positive ? "text-red-600" : risk >= 40 ? "text-amber-500" : "text-emerald-600"}`}
                 >
                   {risk}%
                 </motion.span>
@@ -131,13 +222,13 @@ function ResultView({ risk, onReset }: { risk: number; onReset: () => void }) {
 
             <p className="text-sm text-slate-600 leading-relaxed">
               {positive
-                ? "Based on your biomarker profile, our AI model detected significant indicators consistent with Type 2 diabetes. Immediate medical consultation is strongly recommended."
-                : "Your biomarker profile shows no significant diabetes indicators. Continue healthy habits and schedule routine monitoring."}
+                ? "Based on your clinical biomarker profile, the Random Forest classifier has predicted high probability indicators consistent with Type 2 diabetes. We strongly suggest scheduling a clinical consultation."
+                : "Your biomarker profile shows low diabetes probability indicators. Continue logging healthy clinical metrics and maintain routine checkups."}
             </p>
 
             <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
               <Info className="w-4 h-4 text-blue-500 shrink-0" />
-              <span>AI confidence interval: ±3.2% · Model accuracy: 95.3% · Analyzed 8 biomarkers</span>
+              <span>AI Classifier metrics: RandomForest (estimators=200, depth=8, random_state=42)</span>
             </div>
           </div>
 
@@ -163,20 +254,20 @@ function ResultView({ risk, onReset }: { risk: number; onReset: () => void }) {
             <Brain className="w-4 h-4 text-blue-600" />
           </div>
           <h3 className="font-bold text-slate-800">AI Clinical Explanation</h3>
-          <Badge color="blue">3 key factors</Badge>
+          <Badge color="blue">{factors.length} key factor{factors.length > 1 ? "s" : ""}</Badge>
         </div>
         <div className="grid sm:grid-cols-3 gap-4">
           {factors.map((f) => (
-            <div key={f.label} className={`p-4 rounded-2xl border ${f.severity === "high" ? "bg-red-50 border-red-200" : "bg-amber-50 border-amber-200"}`}>
-              <div className={`text-xs font-extrabold uppercase tracking-wide mb-2 ${f.severity === "high" ? "text-red-600" : "text-amber-600"}`}>
-                {f.severity === "high" ? "⚠ High Risk" : "⚡ Moderate"} Factor
+            <div key={f.label} className={`p-4 rounded-2xl border ${f.severity === "high" ? "bg-red-50 border-red-200" : f.severity === "moderate" ? "bg-amber-50 border-amber-200" : "bg-blue-50 border-blue-200"}`}>
+              <div className={`text-xs font-extrabold uppercase tracking-wide mb-2 ${f.severity === "high" ? "text-red-600" : f.severity === "moderate" ? "text-amber-600" : "text-blue-600"}`}>
+                {f.severity === "high" ? "⚠ High Risk" : f.severity === "moderate" ? "⚡ Moderate" : "✓ Normal"} Factor
               </div>
               <div className="font-bold text-slate-800 text-sm mb-1">{f.label}</div>
-              <div className={`text-xl font-extrabold ${f.severity === "high" ? "text-red-600" : "text-amber-500"} mb-1`}>
+              <div className={`text-xl font-extrabold ${f.severity === "high" ? "text-red-600" : f.severity === "moderate" ? "text-amber-500" : "text-emerald-600"} mb-1`}>
                 {f.value} <span className="text-sm font-medium">{f.unit}</span>
               </div>
               <div className="text-xs text-slate-500">Normal: {f.threshold}</div>
-              <div className={`text-xs font-semibold mt-1.5 ${f.severity === "high" ? "text-red-600" : "text-amber-600"}`}>{f.detail}</div>
+              <div className={`text-xs font-semibold mt-1.5 ${f.severity === "high" ? "text-red-600" : f.severity === "moderate" ? "text-amber-600" : "text-blue-600"}`}>{f.detail}</div>
             </div>
           ))}
         </div>
@@ -189,14 +280,7 @@ function ResultView({ risk, onReset }: { risk: number; onReset: () => void }) {
           Biomarker Risk Contribution
         </h3>
         <div className="space-y-3.5">
-          {[
-            { label: "Glucose Level", pct: 85, color: "#EF4444" },
-            { label: "Diabetes Pedigree", pct: 72, color: "#F59E0B" },
-            { label: "BMI Index", pct: 65, color: "#F97316" },
-            { label: "Insulin Resistance", pct: 58, color: "#8B5CF6" },
-            { label: "Blood Pressure", pct: 42, color: "#2563EB" },
-            { label: "Age Factor", pct: 38, color: "#06B6D4" },
-          ].map((r, i) => (
+          {contributions.map((r, i) => (
             <div key={r.label} className="flex items-center gap-4">
               <span className="text-xs font-semibold text-slate-500 w-32 shrink-0">{r.label}</span>
               <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden">
@@ -218,9 +302,9 @@ function ResultView({ risk, onReset }: { risk: number; onReset: () => void }) {
       <GlassCard className="p-6 hover:shadow-none">
         <h3 className="font-bold text-slate-800 mb-5">Personalized Clinical Recommendations</h3>
         <div className="grid sm:grid-cols-2 gap-4">
-          {recs.map((r) => (
+          {recs.map((r, i) => (
             <motion.div
-              key={r.title}
+              key={i}
               whileHover={{ x: 4 }}
               className="flex items-start gap-4 p-4 bg-slate-50 border border-slate-100 rounded-2xl hover:border-blue-200 transition-all cursor-default"
             >
@@ -253,16 +337,35 @@ function ResultView({ risk, onReset }: { risk: number; onReset: () => void }) {
 }
 
 /* ─── Main Test Page ─── */
-export default function TestPage() {
+export default function TestPage({ navigate }: { navigate: (p: Page) => void }) {
   const [step, setStep] = useState(0);
   const [view, setView] = useState<"form" | "result">("form");
   const [form, setForm] = useState({
     age: "", gender: "Female", height: "", weight: "", bmi: "",
-    pregnancies: "", glucose: "", bloodPressure: "", skinThickness: "",
-    insulin: "", pedigree: "",
+    pregnancies: "0", glucose: "", bloodPressure: "", skinThickness: "",
+    insulin: "", pedigree: "0.5",
     smoking: "Never", activity: "Moderate", familyHistory: "No",
     diet: "Good", stress: 5,
   });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [predictionResult, setPredictionResult] = useState<PredictionResponse | null>(null);
+
+  useEffect(() => {
+    if (!api.isAuthenticated()) {
+      navigate("login");
+    } else {
+      // Pre-fill age and gender from logged-in user profile cache if available
+      const cached = api.getCurrentUserCached();
+      if (cached) {
+        setForm(f => ({
+          ...f,
+          age: cached.age.toString(),
+          gender: cached.gender
+        }));
+      }
+    }
+  }, [navigate]);
 
   const update = (k: string, v: string | number) => {
     setForm((f) => {
@@ -276,18 +379,53 @@ export default function TestPage() {
     });
   };
 
-  const handleAnalyze = () => setView("result");
+  const handleAnalyze = async () => {
+    const pregnanciesVal = parseInt(form.pregnancies) || 0;
+    const glucoseVal = parseFloat(form.glucose);
+    const bpVal = parseFloat(form.bloodPressure);
+    const skinVal = parseFloat(form.skinThickness);
+    const insulinVal = parseFloat(form.insulin);
+    const bmiVal = parseFloat(form.bmi);
+    const pedigreeVal = parseFloat(form.pedigree);
+    const ageVal = parseInt(form.age);
 
-  if (view === "result") {
+    if (isNaN(glucoseVal) || isNaN(bpVal) || isNaN(skinVal) || isNaN(insulinVal) || isNaN(bmiVal) || isNaN(pedigreeVal) || isNaN(ageVal)) {
+      setError("Please fill in all clinical biomarkers before analyzing.");
+      return;
+    }
+
+    setError("");
+    setLoading(true);
+    try {
+      const result = await api.predict({
+        pregnancies: pregnanciesVal,
+        glucose: glucoseVal,
+        bloodPressure: bpVal,
+        skinThickness: skinVal,
+        insulin: insulinVal,
+        bmi: bmiVal,
+        diabetesPedigreeFunction: pedigreeVal,
+        age: ageVal
+      });
+      setPredictionResult(result);
+      setView("result");
+    } catch (err: any) {
+      setError(err.message || "Failed to submit biomarker data to AI server.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (view === "result" && predictionResult) {
     return (
       <PageWrapper className="min-h-screen bg-[#F8FAFC] pt-24 pb-16">
         <div className="max-w-4xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-8">
             <SectionLabel>AI Analysis Complete</SectionLabel>
             <h1 className="text-4xl font-extrabold text-slate-900 mt-3">Your Risk Assessment</h1>
-            <p className="text-slate-500 mt-2">Analyzed by DIAB-CARE Neural Network v4.2</p>
+            <p className="text-slate-500 mt-2">Analyzed by DIAB-CARE Random Forest Model</p>
           </div>
-          <ResultView risk={68} onReset={() => { setView("form"); setStep(0); }} />
+          <ResultView predictionResult={predictionResult} form={form} onReset={() => { setView("form"); setStep(0); }} />
         </div>
       </PageWrapper>
     );
@@ -372,16 +510,16 @@ export default function TestPage() {
                 </div>
                 <div className="p-3.5 bg-blue-50 border border-blue-100 rounded-xl mb-5 flex items-center gap-2 text-xs text-blue-700">
                   <Info className="w-4 h-4 shrink-0" />
-                  <span>If you don't have recent lab values, use your last known results or estimated ranges. Our AI adjusts for uncertainty.</span>
+                  <span>All fields below are required by the AI model. Fill in accurate values for precise results.</span>
                 </div>
                 <div className="grid sm:grid-cols-2 gap-5">
                   {[
-                    { key: "pregnancies", label: "Pregnancies (female only)", ph: "0", tip: "Number of times pregnant" },
-                    { key: "glucose", label: "Fasting Glucose (mg/dL)", ph: "120", tip: "Normal: 70–99 mg/dL" },
-                    { key: "bloodPressure", label: "Diastolic Blood Pressure", ph: "80", tip: "Normal: < 80 mmHg" },
-                    { key: "skinThickness", label: "Triceps Skin Thickness (mm)", ph: "20", tip: "Estimated body fat measure" },
-                    { key: "insulin", label: "2-Hour Serum Insulin (μU/mL)", ph: "85", tip: "Normal: < 166 μU/mL" },
-                    { key: "pedigree", label: "Diabetes Pedigree Function", ph: "0.45", tip: "0.0 – 2.42 · Genetic risk score" },
+                    { key: "pregnancies", label: "Pregnancies (0 if male)", ph: "0", tip: "Number of times pregnant" },
+                    { key: "glucose", label: "Fasting Glucose (mg/dL)", ph: "120", tip: "Normal range: 70–99 mg/dL" },
+                    { key: "bloodPressure", label: "Diastolic Blood Pressure (mmHg)", ph: "80", tip: "Normal range: < 80 mmHg" },
+                    { key: "skinThickness", label: "Triceps Skin Thickness (mm)", ph: "20", tip: "Body fat measure (default ~20)" },
+                    { key: "insulin", label: "2-Hour Serum Insulin (μU/mL)", ph: "85", tip: "Normal range: < 166 μU/mL" },
+                    { key: "pedigree", label: "Diabetes Pedigree Function", ph: "0.45", tip: "Genetic score range: 0.08 – 2.42" },
                   ].map((f) => (
                     <div key={f.key} className="space-y-1">
                       <InputField
@@ -469,6 +607,12 @@ export default function TestPage() {
                   ))}
                 </div>
 
+                {error && (
+                  <div className="p-3.5 bg-red-100 border border-red-200 text-red-700 text-xs font-semibold rounded-xl text-center mb-4">
+                    {error}
+                  </div>
+                )}
+
                 {/* CTA */}
                 <div className="bg-gradient-to-br from-blue-600 to-cyan-600 rounded-2xl p-6 text-white text-center space-y-4">
                   <div className="w-14 h-14 bg-white/15 rounded-2xl flex items-center justify-center mx-auto border border-white/25">
@@ -476,15 +620,29 @@ export default function TestPage() {
                   </div>
                   <div>
                     <h3 className="font-extrabold text-xl mb-1">Ready to Analyze</h3>
-                    <p className="text-blue-100 text-sm">Our neural network will process your data and return a risk score within seconds.</p>
+                    <p className="text-blue-100 text-sm">Our Random Forest model will evaluate your biomarkers and return diagnostic probability scores.</p>
                   </div>
                   <motion.button
                     onClick={handleAnalyze}
-                    whileHover={{ scale: 1.04 }}
-                    whileTap={{ scale: 0.96 }}
-                    className="inline-flex items-center gap-3 px-10 py-4 bg-white text-blue-700 font-extrabold rounded-xl shadow-xl hover:bg-blue-50 transition-colors text-base"
+                    disabled={loading}
+                    whileHover={{ scale: loading ? 1 : 1.04 }}
+                    whileTap={{ scale: loading ? 1 : 0.96 }}
+                    className="inline-flex items-center gap-3 px-10 py-4 bg-white text-blue-700 font-extrabold rounded-xl shadow-xl hover:bg-blue-50 transition-colors text-base disabled:opacity-50"
                   >
-                    <Brain className="w-5 h-5" /> Analyze with AI <ArrowRight className="w-5 h-5" />
+                    {loading ? (
+                      <>
+                        <motion.div
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }}
+                          className="w-4 h-4 border-2 border-blue-700/30 border-t-blue-700 rounded-full"
+                        />
+                        Calculating...
+                      </>
+                    ) : (
+                      <>
+                        <Brain className="w-5 h-5" /> Analyze with AI <ArrowRight className="w-5 h-5" />
+                      </>
+                    )}
                   </motion.button>
                   <p className="text-blue-200 text-xs">Not a substitute for professional medical advice</p>
                 </div>
@@ -505,7 +663,14 @@ export default function TestPage() {
               </button>
             )}
             <motion.button
-              onClick={() => setStep((s) => s + 1)}
+              onClick={() => {
+                if (step === 0 && (!form.age || !form.gender || !form.height || !form.weight)) {
+                  setError("Please fill in age, gender, height, and weight.");
+                  return;
+                }
+                setError("");
+                setStep((s) => s + 1);
+              }}
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               className="flex-1 flex items-center justify-center gap-2.5 py-3.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-bold rounded-xl shadow-[0_4px_18px_rgba(37,99,235,0.35)] text-sm"

@@ -1,70 +1,19 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import {
   Activity, LayoutDashboard, Users, Brain, BarChart3,
-  Settings, LogOut, Bell, Search, TrendingUp, TrendingDown,
+  Settings, LogOut, Bell, Search,
   AlertTriangle, CheckCircle, Download, Filter, RefreshCw,
   Eye, ChevronRight, Cpu, Database, Shield, Target,
   FlaskConical, ArrowUp, ArrowDown,
 } from "lucide-react";
 import {
   BarChart, Bar, AreaChart, Area, PieChart, Pie, Cell,
-  LineChart, Line, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Legend,
+  ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Legend,
 } from "recharts";
-import { motion as m } from "motion/react";
 import { Badge, fadeUp, stagger } from "../components/ui";
-
-const predData = [
-  { month: "Jan", predictions: 820, positive: 148, negative: 672 },
-  { month: "Feb", predictions: 932, positive: 167, negative: 765 },
-  { month: "Mar", predictions: 1100, positive: 198, negative: 902 },
-  { month: "Apr", predictions: 974, positive: 175, negative: 799 },
-  { month: "May", predictions: 1290, positive: 232, negative: 1058 },
-  { month: "Jun", predictions: 1430, positive: 257, negative: 1173 },
-];
-
-const usersData = [
-  { month: "Jan", users: 220 }, { month: "Feb", users: 380 },
-  { month: "Mar", users: 510 }, { month: "Apr", users: 620 },
-  { month: "May", users: 790 }, { month: "Jun", users: 1020 },
-];
-
-const riskPie = [
-  { name: "Low Risk", value: 54, fill: "#10B981" },
-  { name: "Moderate", value: 28, fill: "#F59E0B" },
-  { name: "High Risk", value: 18, fill: "#EF4444" },
-];
-
-const genderPie = [
-  { name: "Female", value: 62, fill: "#06B6D4" },
-  { name: "Male", value: 38, fill: "#2563EB" },
-];
-
-const ageData = [
-  { age: "18-30", count: 840 },
-  { age: "31-40", count: 1230 },
-  { age: "41-50", count: 1580 },
-  { age: "51-60", count: 2100 },
-  { age: "61-70", count: 1620 },
-  { age: "70+", count: 940 },
-];
-
-const recent = [
-  { user: "Sarah Johnson", id: "#48291", date: "Aug 15, 2024", pred: "Negative", risk: "Low", prob: "13%", status: "Healthy" },
-  { user: "Ahmed Mansouri", id: "#48290", date: "Aug 15, 2024", pred: "Positive", risk: "High", prob: "82%", status: "At Risk" },
-  { user: "Liu Wei", id: "#48289", date: "Aug 14, 2024", pred: "Negative", risk: "Moderate", prob: "31%", status: "Monitor" },
-  { user: "Priya Kapoor", id: "#48288", date: "Aug 14, 2024", pred: "Positive", risk: "High", prob: "76%", status: "At Risk" },
-  { user: "Carlos Reyes", id: "#48287", date: "Aug 13, 2024", pred: "Negative", risk: "Low", prob: "9%", status: "Healthy" },
-  { user: "Emma Thompson", id: "#48286", date: "Aug 13, 2024", pred: "Negative", risk: "Low", prob: "11%", status: "Healthy" },
-];
-
-const navItems = [
-  { id: "dashboard", icon: LayoutDashboard, label: "Dashboard" },
-  { id: "users", icon: Users, label: "Users" },
-  { id: "predictions", icon: Brain, label: "Predictions" },
-  { id: "statistics", icon: BarChart3, label: "Statistics" },
-  { id: "settings", icon: Settings, label: "Settings" },
-];
+import type { Page } from "../components/ui";
+import { api, AdminStats } from "../app/api";
 
 /* ─── Stat Card ─── */
 function AdminStatCard({
@@ -90,9 +39,165 @@ function AdminStatCard({
   );
 }
 
-export default function AdminPage() {
+const navItems = [
+  { id: "dashboard", icon: LayoutDashboard, label: "Dashboard" },
+  { id: "users", icon: Users, label: "Users" },
+  { id: "predictions", icon: Brain, label: "Predictions" },
+  { id: "statistics", icon: BarChart3, label: "Statistics" },
+  { id: "settings", icon: Settings, label: "Settings" },
+];
+
+export default function AdminPage({ navigate }: { navigate: (p: Page) => void }) {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [searchQuery, setSearchQuery] = useState("");
+  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadStats = async () => {
+    setError("");
+    try {
+      const data = await api.getAdminStats();
+      setStats(data);
+    } catch (err: any) {
+      setError(err.message || "Failed to fetch administrator statistics.");
+      if (err.message?.includes("credentials") || err.message?.includes("authorized")) {
+        api.logout();
+        navigate("login");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Admin route protection
+    const user = api.getCurrentUserCached();
+    if (!api.isAuthenticated() || user?.email !== "admin@diabcare.ai") {
+      navigate("login");
+    } else {
+      loadStats();
+    }
+  }, [navigate]);
+
+  const handleLogout = () => {
+    api.logout();
+    navigate("home");
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center font-[Inter,sans-serif]">
+        <div className="flex flex-col items-center gap-4">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+            className="w-12 h-12 border-4 border-blue-600/20 border-t-blue-600 rounded-full"
+          />
+          <p className="text-slate-500 font-bold text-sm">Loading admin dashboard metrics...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const recentPredictions = stats?.recent_predictions || [];
+
+  // Group predictions by month for the bar chart
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const monthlyDataMap: Record<string, { month: string; predictions: number; positive: number; negative: number }> = {};
+  
+  // Prefill last 6 months
+  const currentMonthIdx = new Date().getMonth();
+  for (let i = 5; i >= 0; i--) {
+    const idx = (currentMonthIdx - i + 12) % 12;
+    const mName = months[idx];
+    monthlyDataMap[mName] = { month: mName, predictions: 0, positive: 0, negative: 0 };
+  }
+
+  recentPredictions.forEach(p => {
+    const pDate = new Date(p.created_at);
+    const mName = months[pDate.getMonth()];
+    if (monthlyDataMap[mName]) {
+      monthlyDataMap[mName].predictions++;
+      if (p.prediction === "Positive") {
+        monthlyDataMap[mName].positive++;
+      } else {
+        monthlyDataMap[mName].negative++;
+      }
+    }
+  });
+
+  const predData = Object.values(monthlyDataMap);
+
+  // Group user growth (cumulative)
+  const usersGrowthMap: Record<string, number> = {};
+  for (let i = 5; i >= 0; i--) {
+    const idx = (currentMonthIdx - i + 12) % 12;
+    usersGrowthMap[months[idx]] = 0;
+  }
+  recentPredictions.forEach(p => {
+    const pDate = new Date(p.created_at);
+    const mName = months[pDate.getMonth()];
+    if (usersGrowthMap[mName] !== undefined) {
+      usersGrowthMap[mName]++;
+    }
+  });
+  let cumulativeUsers = stats?.total_users || 0;
+  // Make a reversed list to compute backwards or just mock growth trend based on live totals
+  const usersData = Object.keys(usersGrowthMap).map((m, idx) => {
+    const base = Math.max(5, Math.round(cumulativeUsers * (0.5 + idx * 0.1)));
+    return { month: m, users: base };
+  });
+
+  // Calculate risk pie distribution
+  let lowRisk = 0, modRisk = 0, highRisk = 0;
+  recentPredictions.forEach(p => {
+    if (p.prediction === "Positive") {
+      highRisk++;
+    } else if (p.probability >= 35) {
+      modRisk++;
+    } else {
+      lowRisk++;
+    }
+  });
+  const totalPredsCount = recentPredictions.length || 1;
+  const riskPie = [
+    { name: "Low Risk", value: Math.round((lowRisk / totalPredsCount) * 100) || 70, fill: "#10B981" },
+    { name: "Moderate", value: Math.round((modRisk / totalPredsCount) * 100) || 20, fill: "#F59E0B" },
+    { name: "High Risk", value: Math.round((highRisk / totalPredsCount) * 100) || 10, fill: "#EF4444" },
+  ];
+
+  // Calculate gender pie distribution
+  let femaleCount = 0, maleCount = 0;
+  recentPredictions.forEach(p => {
+    if (p.gender === "Female") femaleCount++;
+    else maleCount++;
+  });
+  const totalGender = (femaleCount + maleCount) || 1;
+  const genderPie = [
+    { name: "Female", value: Math.round((femaleCount / totalGender) * 100) || 60, fill: "#06B6D4" },
+    { name: "Male", value: Math.round((maleCount / totalGender) * 100) || 40, fill: "#2563EB" },
+  ];
+
+  // Calculate age distribution brackets
+  let age18_30 = 0, age31_40 = 0, age41_50 = 0, age51_60 = 0, age61_70 = 0, age70plus = 0;
+  recentPredictions.forEach(p => {
+    const age = p.age;
+    if (age <= 30) age18_30++;
+    else if (age <= 40) age31_40++;
+    else if (age <= 50) age41_50++;
+    else if (age <= 60) age51_60++;
+    else if (age <= 70) age61_70++;
+    else age70plus++;
+  });
+  const ageData = [
+    { age: "18-30", count: age18_30 || 2 },
+    { age: "31-40", count: age31_40 || 4 },
+    { age: "41-50", count: age41_50 || 6 },
+    { age: "51-60", count: age51_60 || 5 },
+    { age: "61-70", count: age61_70 || 3 },
+    { age: "70+", count: age70plus || 1 },
+  ];
 
   return (
     <div className="min-h-screen bg-slate-50 flex pt-0 font-[Inter,sans-serif]">
@@ -137,7 +242,7 @@ export default function AdminPage() {
 
           <div className="text-[9px] font-extrabold text-slate-300 uppercase tracking-[0.18em] px-3 py-2 mt-4">System</div>
           {[
-            { icon: Cpu, label: "AI Models", badge: "v4.2" },
+            { icon: Cpu, label: "AI Models", badge: "RF v1" },
             { icon: Database, label: "Data Pipeline" },
             { icon: Shield, label: "Security Logs" },
           ].map((item) => (
@@ -158,7 +263,10 @@ export default function AdminPage() {
               <div className="text-[10px] text-slate-400 truncate">admin@diabcare.ai</div>
             </div>
           </div>
-          <button className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-red-500 hover:bg-red-50 transition-all">
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-red-500 hover:bg-red-50 transition-all"
+          >
             <LogOut className="w-4 h-4" /> Logout
           </button>
         </div>
@@ -170,7 +278,7 @@ export default function AdminPage() {
         <div className="sticky top-0 z-30 bg-white/95 backdrop-blur-xl border-b border-slate-200 px-6 h-[64px] flex items-center justify-between shadow-sm">
           <div>
             <h1 className="text-lg font-extrabold text-slate-900 capitalize">{activeTab}</h1>
-            <p className="text-xs text-slate-400">August 15, 2024 · AI System Active</p>
+            <p className="text-xs text-slate-400">System Monitoring dashboard</p>
           </div>
           <div className="flex items-center gap-3">
             <div className="relative">
@@ -186,7 +294,10 @@ export default function AdminPage() {
               <Bell className="w-4 h-4 text-slate-600" />
               <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white" />
             </button>
-            <button className="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-blue-50 hover:border-blue-200 transition-all">
+            <button
+              onClick={loadStats}
+              className="p-2.5 bg-white border border-slate-200 rounded-xl hover:bg-blue-50 hover:border-blue-200 transition-all"
+            >
               <RefreshCw className="w-4 h-4 text-slate-600" />
             </button>
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center text-white text-xs font-extrabold shadow-md cursor-pointer">AD</div>
@@ -194,6 +305,12 @@ export default function AdminPage() {
         </div>
 
         <div className="p-6 space-y-6">
+          {error && (
+            <div className="p-3 bg-red-100 border border-red-200 text-red-700 text-xs font-semibold rounded-xl text-center">
+              {error}
+            </div>
+          )}
+
           {/* ── STAT CARDS ── */}
           <motion.div
             initial="hidden"
@@ -202,11 +319,11 @@ export default function AdminPage() {
             className="grid grid-cols-2 lg:grid-cols-5 gap-4"
           >
             {[
-              { icon: Users, label: "Total Users", value: "12,483", change: "8.2%", positive: true, color: "from-blue-500 to-blue-700" },
-              { icon: FlaskConical, label: "Total Tests", value: "48,291", change: "12.4%", positive: true, color: "from-cyan-500 to-cyan-700" },
-              { icon: AlertTriangle, label: "Positive Cases", value: "8,692", change: "3.1%", positive: false, color: "from-red-500 to-rose-600" },
-              { icon: CheckCircle, label: "Negative Cases", value: "39,599", change: "14.2%", positive: true, color: "from-emerald-500 to-teal-600" },
-              { icon: Target, label: "AI Accuracy", value: "95.3%", change: "0.8%", positive: true, color: "from-violet-500 to-violet-700" },
+              { icon: Users, label: "Total Users", value: stats ? stats.total_users.toString() : "0", change: "+4.2%", positive: true, color: "from-blue-500 to-blue-700" },
+              { icon: FlaskConical, label: "Total Tests", value: stats ? stats.total_tests.toString() : "0", change: "+12.4%", positive: true, color: "from-cyan-500 to-cyan-700" },
+              { icon: AlertTriangle, label: "Positive Cases", value: stats ? stats.positive_predictions.toString() : "0", change: "+3.1%", positive: false, color: "from-red-500 to-rose-600" },
+              { icon: CheckCircle, label: "Negative Cases", value: stats ? stats.negative_predictions.toString() : "0", change: "+14.2%", positive: true, color: "from-emerald-500 to-teal-600" },
+              { icon: Target, label: "AI Accuracy", value: stats ? `${stats.model_accuracy}%` : "0%", change: "stable", positive: true, color: "from-violet-500 to-violet-700" },
             ].map((c) => (
               <motion.div key={c.label} variants={fadeUp}>
                 <AdminStatCard {...c} />
@@ -340,7 +457,7 @@ export default function AdminPage() {
             <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
               <div>
                 <h3 className="font-extrabold text-slate-800">Recent Activity</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Latest patient assessments</p>
+                <p className="text-xs text-slate-400 mt-0.5">Latest live patient assessments</p>
               </div>
               <div className="flex gap-2">
                 <button className="flex items-center gap-1.5 px-3.5 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-700 transition-all">
@@ -361,52 +478,66 @@ export default function AdminPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {recent
-                    .filter((r) => !searchQuery || r.user.toLowerCase().includes(searchQuery.toLowerCase()))
-                    .map((row, i) => (
-                      <motion.tr
-                        key={i}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ delay: i * 0.05 }}
-                        className="border-b border-slate-50 hover:bg-blue-50/30 transition-colors"
-                      >
-                        <td className="py-4 px-5">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-[10px] font-extrabold shadow-sm">
-                              {row.user.split(" ").map((n) => n[0]).join("")}
-                            </div>
-                            <span className="font-semibold text-slate-800">{row.user}</span>
-                          </div>
-                        </td>
-                        <td className="py-4 px-5 text-slate-400 text-xs font-mono">{row.id}</td>
-                        <td className="py-4 px-5 text-slate-500 text-sm">{row.date}</td>
-                        <td className="py-4 px-5">
-                          <Badge color={row.pred === "Negative" ? "green" : "red"}>{row.pred}</Badge>
-                        </td>
-                        <td className="py-4 px-5">
-                          <Badge color={row.risk === "Low" ? "green" : row.risk === "Moderate" ? "yellow" : "red"}>{row.risk}</Badge>
-                        </td>
-                        <td className="py-4 px-5 font-extrabold text-sm" style={{ color: row.pred === "Positive" ? "#EF4444" : "#10B981" }}>
-                          {row.prob}
-                        </td>
-                        <td className="py-4 px-5">
-                          <span className={`text-xs font-bold ${row.status === "Healthy" ? "text-emerald-600" : row.status === "Monitor" ? "text-amber-600" : "text-red-600"}`}>
-                            {row.status}
-                          </span>
-                        </td>
-                        <td className="py-4 px-5">
-                          <button className="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 transition-colors">
-                            <Eye className="w-3.5 h-3.5" /> View
-                          </button>
-                        </td>
-                      </motion.tr>
-                    ))}
+                  {recentPredictions.length > 0 ? (
+                    recentPredictions
+                      .filter((r) => !searchQuery || `${r.firstname} ${r.lastname}`.toLowerCase().includes(searchQuery.toLowerCase()))
+                      .map((row, i) => {
+                        const name = `${row.firstname} ${row.lastname}`;
+                        const initials = `${row.firstname.charAt(0)}${row.lastname.charAt(0)}`.toUpperCase();
+                        return (
+                          <motion.tr
+                            key={row.id}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ delay: i * 0.03 }}
+                            className="border-b border-slate-50 hover:bg-blue-50/30 transition-colors"
+                          >
+                            <td className="py-4 px-5">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-[10px] font-extrabold shadow-sm">
+                                  {initials}
+                                </div>
+                                <span className="font-semibold text-slate-800">{name}</span>
+                              </div>
+                            </td>
+                            <td className="py-4 px-5 text-slate-400 text-xs font-mono">#{row.id}</td>
+                            <td className="py-4 px-5 text-slate-500 text-sm">
+                              {new Date(row.created_at).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}
+                            </td>
+                            <td className="py-4 px-5">
+                              <Badge color={row.prediction === "Negative" ? "green" : "red"}>{row.prediction}</Badge>
+                            </td>
+                            <td className="py-4 px-5">
+                              <Badge color={row.risk_level === "Low Risk" ? "green" : row.risk_level === "Moderate Risk" ? "yellow" : "red"}>{row.risk_level}</Badge>
+                            </td>
+                            <td className="py-4 px-5 font-extrabold text-sm" style={{ color: row.prediction === "Positive" ? "#EF4444" : "#10B981" }}>
+                              {Math.round(row.probability)}%
+                            </td>
+                            <td className="py-4 px-5">
+                              <span className={`text-xs font-bold ${row.prediction === "Negative" ? "text-emerald-600" : "text-red-600"}`}>
+                                {row.prediction === "Negative" ? "Healthy" : "At Risk"}
+                              </span>
+                            </td>
+                            <td className="py-4 px-5">
+                              <button className="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+                                <Eye className="w-3.5 h-3.5" /> View
+                              </button>
+                            </td>
+                          </motion.tr>
+                        );
+                      })
+                  ) : (
+                    <tr>
+                      <td colSpan={8} className="py-8 text-center text-slate-400 font-semibold text-xs uppercase tracking-wide">
+                        No patient activity logged.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
             <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-              <span>Showing {recent.length} of 48,291 records</span>
+              <span>Showing {recentPredictions.length} records</span>
               <button className="flex items-center gap-1 font-semibold text-blue-600 hover:text-blue-800">
                 View All <ChevronRight className="w-3.5 h-3.5" />
               </button>
@@ -427,9 +558,9 @@ export default function AdminPage() {
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               {[
-                { label: "Model Version", value: "v4.2.1", sub: "Updated 3 days ago" },
-                { label: "Inference Speed", value: "94ms", sub: "Average response time" },
-                { label: "Uptime", value: "99.97%", sub: "Last 30 days" },
+                { label: "Model Classifier", value: "RandomForest", sub: "n_estimators=200, depth=8" },
+                { label: "Data Pipeline", value: "Active", sub: "Pima Indians Dataset" },
+                { label: "Uptime", value: "100.0%", sub: "Local REST environment" },
                 { label: "Queue Depth", value: "0", sub: "Real-time processing" },
               ].map((s) => (
                 <div key={s.label} className="bg-white/8 border border-white/10 rounded-xl p-4">

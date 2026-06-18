@@ -12,6 +12,7 @@ import {
   LogIn,
 } from "lucide-react";
 import type { Page } from "./ui";
+import { api } from "../app/api";
 
 interface Props {
   current: Page;
@@ -94,27 +95,53 @@ export default function Navbar({ current, navigate }: Props) {
 
           {/* Actions */}
           <div className="hidden lg:flex items-center gap-2">
-            <button
-              onClick={() => navigate("profile")}
-              className="p-2.5 rounded-xl text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-all duration-200 relative"
-            >
-              <Bell className="w-4 h-4" />
-              <span className="absolute top-2 right-2 w-1.5 h-1.5 bg-red-500 rounded-full" />
-            </button>
-            <button
-              onClick={() => navigate("login")}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-600 hover:text-blue-700 hover:bg-blue-50 transition-all"
-            >
-              <LogIn className="w-4 h-4" /> Sign In
-            </button>
-            <button
-              onClick={() => navigate("profile")}
-              className="p-2 rounded-xl hover:bg-blue-50 transition-all"
-            >
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center text-white text-xs font-extrabold shadow-md">
-                SJ
-              </div>
-            </button>
+            {api.isAuthenticated() && (
+              <button
+                onClick={() => navigate("profile")}
+                className="p-2.5 rounded-xl text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-all duration-200 relative"
+              >
+                <Bell className="w-4 h-4" />
+                <span className="absolute top-2 right-2 w-1.5 h-1.5 bg-red-500 rounded-full" />
+              </button>
+            )}
+            
+            {!api.isAuthenticated() ? (
+              <button
+                onClick={() => navigate("login")}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-600 hover:text-blue-700 hover:bg-blue-50 transition-all"
+              >
+                <LogIn className="w-4 h-4" /> Sign In
+              </button>
+            ) : (() => {
+              const user = api.getCurrentUserCached();
+              const initials = user ? `${user.firstname.charAt(0)}${user.lastname.charAt(0)}`.toUpperCase() : "SJ";
+              const isAdmin = user?.email === "admin@diabcare.ai";
+              return (
+                <div className="flex items-center gap-2">
+                  {isAdmin && (
+                    <button
+                      onClick={() => navigate("admin")}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-xl text-xs font-bold border border-blue-100 hover:bg-blue-100 transition-all mr-1"
+                    >
+                      <LayoutDashboard className="w-3.5 h-3.5" /> Dashboard
+                    </button>
+                  )}
+                  <span className="text-sm font-bold text-slate-800 mr-1 hidden sm:inline">
+                    {user?.firstname}
+                  </span>
+                  <button
+                    onClick={() => navigate("profile")}
+                    className="p-2 rounded-xl hover:bg-blue-50 transition-all"
+                    title="View Profile"
+                  >
+                    <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center text-white text-xs font-extrabold shadow-md">
+                      {initials}
+                    </div>
+                  </button>
+                </div>
+              );
+            })()}
+
             <motion.button
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
@@ -159,12 +186,21 @@ export default function Navbar({ current, navigate }: Props) {
                   </button>
                 ))}
                 <div className="grid grid-cols-2 gap-2 pt-2">
-                  <button
-                    onClick={() => { navigate("login"); setOpen(false); }}
-                    className="py-3 border-2 border-blue-200 rounded-xl text-sm text-blue-700 font-bold hover:bg-blue-50 transition-all"
-                  >
-                    Sign In
-                  </button>
+                  {api.isAuthenticated() ? (
+                    <button
+                      onClick={() => { api.logout(); navigate("home"); setOpen(false); }}
+                      className="py-3 border-2 border-red-200 rounded-xl text-sm text-red-600 font-bold hover:bg-red-50 transition-all"
+                    >
+                      Sign Out
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => { navigate("login"); setOpen(false); }}
+                      className="py-3 border-2 border-blue-200 rounded-xl text-sm text-blue-700 font-bold hover:bg-blue-50 transition-all"
+                    >
+                      Sign In
+                    </button>
+                  )}
                   <button
                     onClick={() => { navigate("test"); setOpen(false); }}
                     className="py-3 bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl text-sm text-white font-bold shadow-md"
